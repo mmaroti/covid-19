@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (C) 2018, Miklos Maroti
+# Copyright (C) 2020, Miklos Maroti
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,18 +17,23 @@
 import argparse
 import sys
 
+from . import data_italy
 
-def run(argv=sys.argv):
+
+def run():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('command', choices=[
-                        'test'], help="subcommand to execute")
+    parser.add_argument(
+        'command', choices=['data_italy'],
+        help="subcommand to execute")
 
-    args = parser.parse_args(argv[1:2])
+    args = parser.parse_args(sys.argv[1:2])
 
     # hack the program name for subcommand
     sys.argv[0] += ' ' + args.command
-    print(args)
+
+    if args.command == 'data_italy':
+        data_italy.run(sys.argv[2:])
 
 
 if __name__ == '__main__':

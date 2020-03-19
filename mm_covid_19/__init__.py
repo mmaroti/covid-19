@@ -13,25 +13,3 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-from setuptools import setup
-
-setup(
-    name='mm-covid-19',
-    version='0.1',
-    packages=['mm_covid_19'],
-    license='GPL 3',
-    description="Modelling COVID-19",
-    long_description=open('README.md').read(),
-    python_requires='>3.6',
-    # do not list standard packages
-    install_requires=[
-        'numpy',
-        'torch',
-    ],
-    entry_points={
-        'console_scripts': [
-            'mm_covid_19 = mm_covid_19.__main__:run'
-        ]
-    }
-)
