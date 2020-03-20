@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-A pandas alternative, maybe better suited for our purposes.
+A pandas alternative, with multi dimensional tables.
 """
 
 from __future__ import print_function, division
@@ -26,8 +26,7 @@ import numpy as np
 class Axis(object):
     """
     An object that maps (arbitrary) coordinate values to (zero based and
-    incremented) indices. When a lookup fails, then the coordinate is
-    inserted at the end of the list and a new index is returned.
+    incremented) indices.
     """
 
     def __init__(self, name, increment=10, data=None):
@@ -61,11 +60,10 @@ class Axis(object):
         return "{} of size {}".format(self.name, len(self.data))
 
 
-class Series(object):
+class Table(object):
     """
-    Maintaines a table of values of the same data type indexed by
-    a list of axes. At lookup if the given coordinate value does not
-    exists, then the axes and the table are extended with zero.
+    Maintains a table of values of the same data type indexed by
+    a list of axes.
     """
 
     def __init__(self, name, axes, dtype=float, data=None):
@@ -122,7 +120,7 @@ class Series(object):
     def replace_axis(self, old_axis, new_axis):
         """
         Replaces the given axes with the new one. Values from the old
-        series are copied over to the new series and missing data is filled
+        tables are copied over to the new tables and missing data is filled
         with zeros.
         """
 
@@ -148,15 +146,6 @@ class Series(object):
             self.axes[pos] = new_axis
             self.data = new_data
 
-    def lookup(self, value):
-        """
-        Returns the coordinate of the given value in a 1-dimensional series.
-        """
-
-        assert self.data.ndim == 1
-        index = self.data.tolist().index(value)
-        return self.axes[0].data[index]
-
     def __getitem__(self, coords):
         indices = self.get_indices(coords)
         return self.data[indices]
@@ -173,16 +162,16 @@ class Series(object):
 
 
 class Frame(object):
-    """A collection of axis and series that are manipulated together."""
+    """A collection of axis and tables that are manipulated together."""
 
     def __init__(self):
         self.axes = {}
-        self.series = {}
+        self.tables = {}
 
     def __repr__(self):
-        return "frame axes [{}] series [{}]".format(
+        return "frame axes [{}] table [{}]".format(
             ', '.join(sorted(self.axes)),
-            ', '.join(sorted(self.series)))
+            ', '.join(sorted(self.tables)))
 
     def info(self):
         def axis_info(axis):
@@ -191,42 +180,42 @@ class Frame(object):
                 r += " = " + str(axis.data)
             return r
 
-        def series_info(series):
-            r = str(series)
-            if series.data.ndim <= 1 and series.data.size <= 10:
-                r += " = " + str(series.data)
+        def table_info(table):
+            r = str(table)
+            if table.data.ndim <= 1 and table.data.size <= 10:
+                r += " = " + str(table.data)
             return r
 
         return "\n".join(
             [axis_info(self.axes[n]) for n in sorted(self.axes)] +
-            [series_info(self.series[n]) for n in sorted(self.series)])
+            [table_info(self.tables[n]) for n in sorted(self.tables)])
 
     def get_axis(self, name):
         return self.axes[name]
 
-    def get_series(self, name):
-        return self.series[name]
+    def get_table(self, name):
+        return self.tables[name]
 
     def __getitem__(self, name):
-        return self.series[name] if name in self.series else self.axes[name]
+        return self.tables[name] if name in self.tables else self.axes[name]
 
     def __contains__(self, name):
-        return name in self.series or name in self.axes
+        return name in self.tables or name in self.axes
 
     def add_axis(self, name, increment=10, data=None):
         assert name not in self.axes
         axis = Axis(name, increment=increment, data=data)
         self.axes[name] = axis
 
-    def add_series(self, name, axis_names, dtype=float):
-        assert name not in self.series
-        series = Series(
+    def add_table(self, name, axis_names, dtype=float):
+        assert name not in self.tables
+        table = Table(
             name, [self.axes[n] for n in axis_names], dtype=dtype)
-        self.series[name] = series
-        return series
+        self.tables[name] = table
+        return table
 
     def trim_data(self):
-        for s in self.series.values():
+        for s in self.tables.values():
             s.trim_data()
 
     def replace_axis(self, name, data):
@@ -237,7 +226,7 @@ class Frame(object):
         new_axis = Axis(old_axis.name, data=data, increment=old_axis.increment)
         self.axes[name] = new_axis
 
-        for s in self.series.values():
+        for s in self.tables.values():
             s.replace_axis(old_axis, new_axis)
 
     def extend(self, frame):
@@ -245,9 +234,9 @@ class Frame(object):
             assert axis.name not in self.axes
             self.axes[axis.name] = axis
 
-        for series in frame.series.values():
-            assert series.name not in self.series
-            self.series[series.name] = series
+        for table in frame.tables.values():
+            assert table.name not in self.tables
+            self.tables[table.name] = table
 
 
 def dump(frame, file):
@@ -260,11 +249,11 @@ def dump(frame, file):
             dtype='U999'))
         parts.append(np.array(axis.data))
 
-    for series in frame.series.values():
+    for table in frame.tables.values():
         parts.append(np.array(
-            ['series', series.name] + [a.name for a in series.axes],
+            ['table', table.name] + [a.name for a in table.axes],
             dtype='U999'))
-        parts.append(series.data)
+        parts.append(table.data)
 
     np.savez_compressed(file, *parts)
 
@@ -283,9 +272,9 @@ def load(file):
         data = parts[idx + 1]
         if conf[0] == 'axis':
             frame.add_axis(conf[1], increment=int(conf[2]), data=list(data))
-        elif conf[0] == 'series':
-            series = frame.add_series(conf[1], conf[2:], dtype=data.dtype)
-            series.data = data
+        elif conf[0] == 'table':
+            table = frame.add_table(conf[1], conf[2:], dtype=data.dtype)
+            table.data = data
         else:
             print("Unexpected part", conf)
 
@@ -313,9 +302,9 @@ def run(args=None):
         frame = load(filename)
         print(frame.info())
         if args.print is not None:
-            series = frame[args.print]
-            if series is not None:
-                print(series.data)
+            table = frame[args.print]
+            if table is not None:
+                print(table.data)
             else:
                 logging.info("Unknown name %s", args.data)
                 args.data = None
