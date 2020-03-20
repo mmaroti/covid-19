@@ -24,7 +24,7 @@ def run():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        'command', choices=['data_italy'],
+        'command', choices=['data-italy'],
         help="subcommand to execute")
 
     args = parser.parse_args(sys.argv[1:2])
@@ -32,7 +32,7 @@ def run():
     # hack the program name for subcommand
     sys.argv[0] += ' ' + args.command
 
-    if args.command == 'data_italy':
+    if args.command == 'data-italy':
         data_italy.run(sys.argv[2:])
 
 

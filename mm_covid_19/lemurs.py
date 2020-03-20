@@ -207,10 +207,10 @@ class Frame(object):
         axis = Axis(name, increment=increment, data=data)
         self.axes[name] = axis
 
-    def add_table(self, name, axis_names, dtype=float):
+    def add_table(self, name, axis_names, dtype=float, data=None):
         assert name not in self.tables
         table = Table(
-            name, [self.axes[n] for n in axis_names], dtype=dtype)
+            name, [self.axes[n] for n in axis_names], dtype=dtype, data=data)
         self.tables[name] = table
         return table
 
@@ -273,8 +273,8 @@ def load(file):
         if conf[0] == 'axis':
             frame.add_axis(conf[1], increment=int(conf[2]), data=list(data))
         elif conf[0] == 'table':
-            table = frame.add_table(conf[1], conf[2:], dtype=data.dtype)
-            table.data = data
+            table = frame.add_table(
+                conf[1], conf[2:], dtype=data.dtype, data=data)
         else:
             print("Unexpected part", conf)
 
