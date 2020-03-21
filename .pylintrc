@@ -1,0 +1,9 @@
+# for pytorch, ugh
+ignore=E1102
+
+[MASTER]
+extension-pkg-whitelist=numpy,torch
+
+[TYPECHECK]
+ignored-modules=numpy,torch
+ignored-classes=numpy,torch
