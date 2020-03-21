@@ -18,6 +18,7 @@ import argparse
 import sys
 
 from . import data_italy
+from . import data_population
 from . import seird_test
 
 
@@ -25,7 +26,7 @@ def run():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        'command', choices=['data-italy', 'seird-test'],
+        'command', choices=['data-italy', 'data-population', 'seird-test'],
         help="subcommand to execute")
 
     args = parser.parse_args(sys.argv[1:2])
@@ -35,6 +36,8 @@ def run():
 
     if args.command == 'data-italy':
         data_italy.run(sys.argv[2:])
+    elif args.command == 'data-population':
+        data_population.run(sys.argv[2:])
     elif args.command == 'seird-test':
         seird_test.run(sys.argv[2:])
 

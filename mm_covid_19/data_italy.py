@@ -71,7 +71,7 @@ class DataItaly(lemurs.Frame):
             for row in rows:
                 count += 1
                 if count == 1:
-                    if len(row) != 16 or row[0] != 'data' \
+                    if len(row) < 16 or row[0] != 'data' \
                             or row[3] != 'denominazione_regione' \
                             or row[6] != 'ricoverati_con_sintomi' \
                             or row[7] != 'terapia_intensiva' \
