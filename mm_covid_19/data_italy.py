@@ -112,7 +112,7 @@ class DataItaly(lemurs.Frame):
     def active_home_conf(self):
         """Returns the numpy array of confirmed active patients in home
         confinement at the given region and time."""
-        return self['active_critical'].data
+        return self['active_home_conf'].data
 
     @property
     def active_severe(self):
@@ -170,12 +170,37 @@ class DataItaly(lemurs.Frame):
         return self['total_tests'].data
 
     @property
-    def current_tests(self):
+    def new_tests(self):
         """Returns the number of tests performed at the given region on the given day."""
         return np.diff(self.total_tests, axis=1, prepend=0)
 
+    def plot_active(self):
+        _fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex=True, sharey=True)
+
+        for idx in range(len(self.regions)):
+            ax1.plot(self.active_home_conf[idx, :], label=self.regions[idx])
+            ax2.plot(self.active_severe[idx, :], label=self.regions[idx])
+            ax3.plot(self.active_critical[idx, :], label=self.regions[idx])
+
+        ax1.legend()
+        ax1.set_xlabel("days")
+        ax1.set_ylabel("cases")
+        ax1.set_title("active home confinement")
+
+        ax2.legend()
+        ax2.set_xlabel("days")
+        ax2.set_ylabel("cases")
+        ax2.set_title("active hospital severe")
+
+        ax3.legend()
+        ax3.set_xlabel("days")
+        ax3.set_ylabel("tests")
+        ax3.set_title("active hospital critical")
+
+        plt.show()
+
     def plot_closed(self):
-        _fig, (ax1, ax2) = plt.subplots(1, 2)
+        _fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
 
         for idx in range(len(self.regions)):
             ax1.plot(self.closed_recovered[idx, :], label=self.regions[idx])
@@ -194,11 +219,13 @@ class DataItaly(lemurs.Frame):
         plt.show()
 
     def plot_new(self):
-        _fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
+        _fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex=True, sharey=True)
 
         for idx in range(len(self.regions)):
             ax1.plot(self.new_active_cases[idx, :], label=self.regions[idx])
-            ax2.plot(self.new_closed_cases[idx, :], label=self.regions[idx])
+            ax2.plot(
+                self.new_closed_recovered[idx, :], label=self.regions[idx])
+            ax3.plot(self.new_closed_deaths[idx, :], label=self.regions[idx])
 
         ax1.legend()
         ax1.set_xlabel("days")
@@ -208,7 +235,12 @@ class DataItaly(lemurs.Frame):
         ax2.legend()
         ax2.set_xlabel("days")
         ax2.set_ylabel("cases")
-        ax2.set_title("new closed cases")
+        ax2.set_title("new closed recovered")
+
+        ax3.legend()
+        ax3.set_xlabel("days")
+        ax3.set_ylabel("tests")
+        ax3.set_title("new closed deaths")
 
         plt.show()
 
@@ -221,10 +253,9 @@ def run(args=None):
     parser.add_argument('--data-path', default=None, metavar='DIR', type=str,
                         help="path of the downloaded "
                         "https://github.com/pcm-dpc/COVID-19.git repository")
-    parser.add_argument('--plot-closed', action='store_true',
-                        help="plot confirmed closed recovered and death cases")
-    parser.add_argument('--plot-new', action='store_true',
-                        help="plot confirmed new active and closed cases")
+    parser.add_argument('--plot-active', action='store_true')
+    parser.add_argument('--plot-closed', action='store_true')
+    parser.add_argument('--plot-new', action='store_true')
     args = parser.parse_args(args)
 
     italy = DataItaly(args.data_path)
@@ -234,6 +265,8 @@ def run(args=None):
     print(italy.info())
     print("Start date {}, end date {}".format(italy.dates[0], italy.dates[-1]))
 
+    if args.plot_active:
+        italy.plot_active()
     if args.plot_closed:
         italy.plot_closed()
     if args.plot_new:
