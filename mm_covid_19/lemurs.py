@@ -15,7 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-A pandas alternative, with multi dimensional tables.
+A pandas alternative, with multi dimensional tables, copied from
+MarmotE DARPA SC2 project.
 """
 
 from __future__ import print_function, division
