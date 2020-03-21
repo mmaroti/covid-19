@@ -37,17 +37,17 @@ class State(enum.Enum):
     D = 4
 
 
-class Tested(enum.Enum):
+class Confirmed(enum.Enum):
     """
-    Each patient is either tested (N)egative or (P)ositive where
-    * Negative: either not tested at all or all of the tests are negative
-    * Positive: at least one of the tests are positive (may have recovered)
+    Each patient is either (N)ot confirmed, or (C)onfirmed where
+    * Not confirmed: either not tested at all or all of the tests are negative
+    * Confirmed: at least one of the tests are positive (may have recovered)
     """
     N = 0
-    P = 1
+    C = 1
 
 
-class SeirdTest():
+class seirTest():
     """
     All (S) are (N). An (S,N)->(E,N) infection happens, when an (S,N) patient
     meets an (I,N) patient. All (I,P) patients are assumed to be in quarantine,
@@ -59,9 +59,9 @@ class SeirdTest():
     probability with exponential distributions. Thus the (I) infectios period
     is 1 / (gamma + delta).
 
-    The (E,N)->(E,P), (I,N)->(I,P) and (D,N)->(D,P) transitions happens when
+    The (E,N)->(E,C), (I,N)->(I,C) and (D,N)->(D,C) transitions happens when
     an actual test is made. We assume that all deaths are confirmed, so there
-    are only three terminal states: (R,N), (R,P), (D,P)
+    are only three terminal states: (R,N), (R,C), (D,C).
     """
 
     def __init__(self, device='auto'):
@@ -88,7 +88,7 @@ class SeirdTest():
         print("parameters", self.parameters.keys())
 
     def add_case_table(self, name, days):
-        table = torch.zeros([len(State), len(Tested), days], dtype=torch.float,
+        table = torch.zeros([len(State), len(Confirmed), days], dtype=torch.float,
                             requires_grad=True, device=self.device)
         assert name not in self.parameters
         self.parameters[name] = table
@@ -114,7 +114,7 @@ def run(args=None):
                         help="use the Italy dataset")
     args = parser.parse_args(args)
 
-    test = SeirdTest(device=args.device)
+    test = seirTest(device=args.device)
     if args.italy:
         test.add_italy()
     test.info()
