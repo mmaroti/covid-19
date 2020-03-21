@@ -227,7 +227,7 @@ class SeirTest():
         def loss_func():
             target = torch.reshape(population, [-1, 1])
             simulated = torch.sum(table, [2, 3], keepdim=False)
-            return self.rms_loss(simulated - target)
+            return self._rms_loss(simulated - target)
 
         name = name + ' constant population'
         assert name not in self.loss_functions
@@ -239,7 +239,7 @@ class SeirTest():
 
         def loss_func():
             simulated = table[:, :, State.S, Test.C]
-            return self.rms_loss(simulated)
+            return self._rms_loss(simulated)
 
         name = name + ' susceptible not confirmed'
         assert name not in self.loss_functions
