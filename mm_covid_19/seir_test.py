@@ -39,7 +39,7 @@ class State(enum.IntEnum):
     D = 4
 
 
-class Confirmed(enum.IntEnum):
+class Test(enum.IntEnum):
     """
     Each patient is (U)nknown, (T)ested or (C)onfirmed at the beginning
     of each day, and the test results are revealed at the end of the day.
@@ -57,32 +57,20 @@ class Confirmed(enum.IntEnum):
 
 class SeirTest():
     """
-    * SU' + ST' := SU + ST
-        - beta * (SU + ST) * (IU + IT) / population.
-    * SC' := 0
+    Static constraints:
+        SC := 0
+        all other fields sum up to population
 
-    * EU' + ET' := EU
-        - alpha * EU
-        + beta * (SU + ST) * (IU + IT) / population.
-    * EC' := ET + EC
-        - alpha * (ET + EC)
-
-    IU' + IT' := IU
-        - (gamma + delta) * IU
-        + alpha * EU
-    IC' := IT + IC
-        - (gamma + delta) * (IT + IC)
-        + alpha * (ET + EC)
-
-    RU' + RT' := RU + RT
-        + gamma * IU
-    RC' := RC
-        + gamma * (IT + IC)
-
-    DU' := 0
-    DT' := delta * IU
-    DC' := DC + DT
-        + delta * (IT + IC)
+    Transitions:
+        SU' + ST' := SU + ST - beta * (SU + ST) * (IU + IT) / population.
+        EU' + ET' := EU - alpha * EU + beta * (SU + ST) * (IU + IT) / population.
+        EC' := EC + ET - alpha * (EC + ET)
+        IU' + IT' := IU - (gamma + delta) * IU + alpha * EU
+        IC' := IC + IT - (gamma + delta) * (IC + IT) + alpha * (EC + ET)
+        RU' + RT' := RU + RT + gamma * IU
+        RC' := RC + gamma * (IC + IT)
+        DU' + DT' := DU + delta * IU
+        DC' := DC + DT + delta * (IC + IT)
     """
 
     def __init__(self, device='auto'):
@@ -168,16 +156,61 @@ class SeirTest():
     def add_case_table(self, name, num_regions, num_days, avgpop=100000):
         """Creates a tensor with optimizable variables describing one case study.
         The returned shape is [num_regions, num_days, len(State), len(Confirmed)]"""
-        avgpop = 2 + int(avgpop / (len(State) * len(Confirmed)))
-        table = torch.randint(0, avgpop, [num_regions, num_days, len(State), len(Confirmed)],
+        avgpop = 2 + int(avgpop / (len(State) * len(Test)))
+        table = torch.randint(0, avgpop, [num_regions, num_days, len(State), len(Test)],
                               dtype=torch.float, requires_grad=True, device=self.device)
         assert name not in self.parameters
         self.parameters[name] = table
         return table
 
+    def is_case_table(self, table):
+        return len(table.shape) == 4 and table.shape[2] == len(State) \
+            and table.shape[3] == len(Test)
+
     @staticmethod
-    def rms_loss(tensor):
+    def _rms_loss(tensor):
         return torch.sqrt(torch.mean(tensor ** 2.0))
+
+    def population(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return torch.sum(table, [2, 3], keepdim=False)
+
+    def active_cases(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return table[:, :, State.E, Test.C] + table[:, :, State.I, Test.C]
+
+    def closed_recovered(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return table[:, :, State.R, Test.C]
+
+    def closed_deaths(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return table[:, :, State.D, Test.C]
+
+    def closed_cases(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return table[:, :, State.R, Test.C] + table[:, :, State.D, Test.C]
+
+    def new_positive_tests(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return table[:, :, State.E, Test.T] + table[:, :, State.I, Test.T] \
+            + table[:, :, State.D, Test.T]
+
+    def new_negative_tests(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return table[:, :, State.S, Test.T] + table[:, :, State.R, Test.T]
+
+    def new_tests(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        assert self.is_case_table(table)
+        return torch.sum(table[:, :, :, Test.T], axis=2, keepdim=False)
 
     def enforce_constant_population(self, name, table, population):
         """Enforces that the population stays constant and equal to the give
@@ -201,14 +234,14 @@ class SeirTest():
         self.loss_functions[name] = loss_func
 
     def enforce_susceptible_not_confirmed(self, name, table):
-        """Enforces that susceptible patiens are never confirmed."""
+        """Enforces that susceptible patients are never confirmed."""
         assert table.is_leaf
 
         def loss_func():
-            simulated = table[:, :, State.S, Confirmed.C]
+            simulated = table[:, :, State.S, Test.C]
             return self.rms_loss(simulated)
 
-        name = name + ' suspectible not confirmed'
+        name = name + ' susceptible not confirmed'
         assert name not in self.loss_functions
         self.loss_functions[name] = loss_func
 
