@@ -14,12 +14,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import argparse
 import csv
 from datetime import datetime
 import os
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
 
 
@@ -27,6 +25,8 @@ from . import lemurs
 
 
 class DataItaly(lemurs.Frame):
+    """A loader class that presents the Italian case counts as numpy tables."""
+
     def __init__(self, data_path=None):
         super(DataItaly, self).__init__()
 
@@ -62,6 +62,8 @@ class DataItaly(lemurs.Frame):
         self.add_table('total_tests', ['region', 'date'], dtype=int)
 
     def load(self):
+        """Actually do the import operation."""
+
         with open(self.file_name, newline='') as file:
             rows = csv.reader(file, dialect='excel')
 
@@ -116,62 +118,74 @@ class DataItaly(lemurs.Frame):
 
     @property
     def active_severe(self):
-        """Returns the numpy array of confirmed active patients with severe conditions in a hospital at the given region and time."""
+        """Returns the numpy array of confirmed active patients with severe
+        conditions in a hospital at the given region and time."""
         return self['active_severe'].data
 
     @property
     def active_critical(self):
-        """Returns the numpy array of confirmed active patients with critical conditions in a hospital at the given region and time."""
+        """Returns the numpy array of confirmed active patients with critical
+        conditions in a hospital at the given region and time."""
         return self['active_critical'].data
 
     @property
     def active_cases(self):
-        """Returns the numpy array of confirmed active cases at the given region and time."""
+        """Returns the numpy array of confirmed active cases at the given
+        region and time."""
         return self.active_home_conf + self.active_severe + self.active_critical
 
     @property
     def closed_recovered(self):
-        """Returns the numpy array of cumulative confirmed and recovered patients at the given region and time."""
+        """Returns the numpy array of cumulative confirmed and recovered
+        patients at the given region and time."""
         return self['closed_recovered'].data
 
     @property
     def new_closed_recovered(self):
-        """Returns the numpy array of confirmed patients moved to recovered status at the given region and time."""
+        """Returns the numpy array of confirmed patients moved to recovered
+        status at the given region and time."""
         return np.diff(self.closed_recovered, axis=1, prepend=0)
 
     @property
     def closed_deaths(self):
-        """Returns the numpy array of cumulative confirmed and deceased patients at the given region and time."""
+        """Returns the numpy array of cumulative confirmed and deceased
+        patients at the given region and time."""
         return self['closed_deaths'].data
 
     @property
     def new_closed_deaths(self):
-        """Returns the numpy array of confirmed patients died at the given region and time."""
+        """Returns the numpy array of confirmed patients died at the given
+        region and time."""
         return np.diff(self.closed_deaths, axis=1, prepend=0)
 
     @property
     def closed_cases(self):
-        """Returns the numpy array of cumulative confirmed closed cases at the given region and time."""
+        """Returns the numpy array of cumulative confirmed closed cases at
+        the given region and time."""
         return self.closed_recovered + self.closed_deaths
 
     @property
     def new_closed_cases(self):
-        """Returns the numpy array of closed confirmed cases at the given region on the given time."""
+        """Returns the numpy array of closed confirmed cases at the given
+        region on the given time."""
         return np.diff(self.closed_cases, axis=1, prepend=0)
 
     @property
     def new_active_cases(self):
-        """Returns the numpy array of new confirmed active cases at the given region on the given time."""
+        """Returns the numpy array of new confirmed active cases at the
+        given region on the given time."""
         return np.diff(self.active_cases, axis=1, prepend=0) + self.new_closed_cases
 
     @property
     def total_tests(self):
-        """Returns the cumulative total tests performed at the given region and time."""
+        """Returns the cumulative total tests performed at the given
+        region and time."""
         return self['total_tests'].data
 
     @property
     def new_tests(self):
-        """Returns the number of tests performed at the given region on the given day."""
+        """Returns the number of tests performed at the given region
+        on the given day."""
         return np.diff(self.total_tests, axis=1, prepend=0)
 
     def plot_active(self):

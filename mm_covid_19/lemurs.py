@@ -273,8 +273,7 @@ def load(file):
         if conf[0] == 'axis':
             frame.add_axis(conf[1], increment=int(conf[2]), data=list(data))
         elif conf[0] == 'table':
-            table = frame.add_table(
-                conf[1], conf[2:], dtype=data.dtype, data=data)
+            frame.add_table(conf[1], conf[2:], dtype=data.dtype, data=data)
         else:
             print("Unexpected part", conf)
 
