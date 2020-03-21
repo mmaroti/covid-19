@@ -26,6 +26,7 @@ setup(
     python_requires='>3.6',
     # do not list standard packages
     install_requires=[
+        'matplotlib',
         'numpy',
         'torch',
     ],

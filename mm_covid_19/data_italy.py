@@ -19,6 +19,9 @@ import csv
 from datetime import datetime
 import os
 import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+
 
 from . import lemurs
 
@@ -129,17 +132,85 @@ class DataItaly(lemurs.Frame):
     @property
     def closed_recovered(self):
         """Returns the numpy array of cumulative confirmed and recovered patients at the given region and time."""
-        return self['active_critical'].data
+        return self['closed_recovered'].data
+
+    @property
+    def new_closed_recovered(self):
+        """Returns the numpy array of confirmed patients moved to recovered status at the given region and time."""
+        return np.diff(self.closed_recovered, axis=1, prepend=0)
 
     @property
     def closed_deaths(self):
         """Returns the numpy array of cumulative confirmed and deceased patients at the given region and time."""
-        return self['active_critical'].data
+        return self['closed_deaths'].data
+
+    @property
+    def new_closed_deaths(self):
+        """Returns the numpy array of confirmed patients died at the given region and time."""
+        return np.diff(self.closed_deaths, axis=1, prepend=0)
 
     @property
     def closed_cases(self):
         """Returns the numpy array of cumulative confirmed closed cases at the given region and time."""
         return self.closed_recovered + self.closed_deaths
+
+    @property
+    def new_closed_cases(self):
+        """Returns the numpy array of closed confirmed cases at the given region on the given time."""
+        return np.diff(self.closed_cases, axis=1, prepend=0)
+
+    @property
+    def new_active_cases(self):
+        """Returns the numpy array of new confirmed active cases at the given region on the given time."""
+        return np.diff(self.active_cases, axis=1, prepend=0) + self.new_closed_cases
+
+    @property
+    def total_tests(self):
+        """Returns the cumulative total tests performed at the given region and time."""
+        return self['total_tests'].data
+
+    @property
+    def current_tests(self):
+        """Returns the number of tests performed at the given region on the given day."""
+        return np.diff(self.total_tests, axis=1, prepend=0)
+
+    def plot_closed(self):
+        _fig, (ax1, ax2) = plt.subplots(1, 2)
+
+        for idx in range(len(self.regions)):
+            ax1.plot(self.closed_recovered[idx, :], label=self.regions[idx])
+            ax2.plot(self.closed_deaths[idx, :], label=self.regions[idx])
+
+        ax1.legend()
+        ax1.set_xlabel("days")
+        ax1.set_ylabel("cases")
+        ax1.set_title("cumulative recovered cases")
+
+        ax2.legend()
+        ax2.set_xlabel("days")
+        ax2.set_ylabel("cases")
+        ax2.set_title("cumulative deaths")
+
+        plt.show()
+
+    def plot_new(self):
+        _fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
+
+        for idx in range(len(self.regions)):
+            ax1.plot(self.new_active_cases[idx, :], label=self.regions[idx])
+            ax2.plot(self.new_closed_cases[idx, :], label=self.regions[idx])
+
+        ax1.legend()
+        ax1.set_xlabel("days")
+        ax1.set_ylabel("cases")
+        ax1.set_title("new active cases")
+
+        ax2.legend()
+        ax2.set_xlabel("days")
+        ax2.set_ylabel("cases")
+        ax2.set_title("new closed cases")
+
+        plt.show()
 
 
 def run(args=None):
@@ -150,12 +221,23 @@ def run(args=None):
     parser.add_argument('--data-path', default=None, metavar='DIR', type=str,
                         help="path of the downloaded "
                         "https://github.com/pcm-dpc/COVID-19.git repository")
+    parser.add_argument('--plot-closed', action='store_true',
+                        help="plot confirmed closed recovered and death cases")
+    parser.add_argument('--plot-new', action='store_true',
+                        help="plot confirmed new active and closed cases")
     args = parser.parse_args(args)
 
     italy = DataItaly(args.data_path)
     italy.load()
+
+    print("Loaded", italy.file_name)
     print(italy.info())
     print("Start date {}, end date {}".format(italy.dates[0], italy.dates[-1]))
+
+    if args.plot_closed:
+        italy.plot_closed()
+    if args.plot_new:
+        italy.plot_new()
 
 
 if __name__ == '__main__':
