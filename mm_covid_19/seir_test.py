@@ -24,12 +24,13 @@ from . import data_italy
 class State(enum.IntEnum):
     """
     Each patient is in (S)usceptible, (E)xposed, (I)nfectious, (R)ecovered
-    and (D)eceised according to the development of the virus where
-    * Susceptible: not infectious, tests negative, no symptoms
-    * Exposed: not infectious, tests positive, no symptoms
-    * Infectious: infectious, tests positive, symptoms
-    * Recovered: not infectious, tests negative, no symptoms
-    * Deceised: not infectious, tests positive
+    or (D)eceased state at beginning of each day. The state is updated
+    at the end of the day.
+    * Susceptible: not infectious, tests negative, no symptoms.
+    * Exposed: not infectious, tests positive, no symptoms.
+    * Infectious: infectious, tests positive, has symptoms.
+    * Recovered: not infectious, tests negative, no symptoms.
+    * Deceased: not infectious, tests positive.
     """
     S = 0
     E = 1
@@ -40,29 +41,48 @@ class State(enum.IntEnum):
 
 class Confirmed(enum.IntEnum):
     """
-    Each patient is either (N)ot confirmed, or (C)onfirmed where
-    * Not confirmed: either not tested at all or all of the tests are negative
-    * Confirmed: at least one of the tests are positive (may have recovered)
+    Each patient is (U)nknown, (T)ested or (C)onfirmed at the beginning
+    of each day, and the test results are revealed at the end of the day.
+    * Unknown: all previous tests (if any) are negative, not tested that
+      day, not in quarantine (can infect).
+    * Tested: all previous tests (if any) are negative, is tested that day,
+      not in quarantine (can infect).
+    * Confirmed: at least one positive prior test, not tested that day,
+      not infectious (either in quarantine or recovered).
     """
-    N = 0
-    C = 1
+    U = 0
+    T = 1
+    C = 2
 
 
-class seirTest():
+class SeirTest():
     """
-    All (S) are (N). An (S,N)->(E,N) infection happens, when an (S,N) patient
-    meets an (I,N) patient daily with beta probability. All (I,P) patients are
-    assumed to be in quarantine, so they are not infecting.
+    * SU' + ST' := SU + ST
+        - beta * (SU + ST) * (IU + IT) / population.
+    * SC' := 0
 
-    (E)->(I) transition happens with alpha probability with exponential
-    distribution, so the (E) incubation period is 1 / gamma. The (I)->(R)
-    recovery happens with gamma probaility, while (I)->(D) happens with delta
-    probability with exponential distributions. Thus the (I) infectios period
-    is 1 / (gamma + delta).
+    * EU' + ET' := EU
+        - alpha * EU
+        + beta * (SU + ST) * (IU + IT) / population.
+    * EC' := ET + EC
+        - alpha * (ET + EC)
 
-    The (E,N)->(E,C), (I,N)->(I,C) and (D,N)->(D,C) transitions happens when
-    an actual test is made. We assume that all deaths are confirmed, so there
-    are only three terminal states: (R,N), (R,C), (D,C).
+    IU' + IT' := IU
+        - (gamma + delta) * IU
+        + alpha * EU
+    IC' := IT + IC
+        - (gamma + delta) * (IT + IC)
+        + alpha * (ET + EC)
+
+    RU' + RT' := RU + RT
+        + gamma * IU
+    RC' := RC
+        + gamma * (IT + IC)
+
+    DU' := 0
+    DT' := delta * IU
+    DC' := DC + DT
+        + delta * (IT + IC)
     """
 
     def __init__(self, device='auto'):
@@ -70,22 +90,36 @@ class seirTest():
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = torch.device(device)
 
+        # average reproduction number is 2, divided by infection period
+        # of 3 is around 0.7
+        self.alpha_min = 0.4
+        self.alpha_max = 1.0
+        self.alpha = torch.tensor(0.5 * (self.alpha_min + self.alpha_max),
+                                  dtype=torch.float,
+                                  requires_grad=True,
+                                  device=self.device)
+
+        # average incubation period of 6 days, beta is around 1/6 = 0.17
         self.beta_min = 0.1
-        self.beta_max = 0.5
+        self.beta_max = 0.3
         self.beta = torch.tensor(0.5 * (self.beta_min + self.beta_max),
                                  dtype=torch.float,
                                  requires_grad=True,
                                  device=self.device)
 
+        # average infectious period is 3 days, 75% of that is recovery,
+        # gamma is around 1/3 * 0.75 = 0.25
         self.gamma_min = 0.1
-        self.gamma_max = 0.5
+        self.gamma_max = 0.4
         self.gamma = torch.tensor(0.5 * (self.gamma_min + self.gamma_max),
                                   dtype=torch.float,
                                   requires_grad=True,
                                   device=self.device)
 
-        self.delta_min = 0.1
-        self.delta_max = 0.5
+        # average infectious period is 3 days, 25% of that is death,
+        # delta is around 1/3 * 0.25 = 0.08
+        self.delta_min = 0.0
+        self.delta_max = 0.2
         self.delta = torch.tensor(0.5 * (self.delta_min + self.delta_max),
                                   dtype=torch.float,
                                   requires_grad=True,
@@ -93,6 +127,7 @@ class seirTest():
 
         # optimization parameters, case tables will be added
         self.parameters = {
+            'alpha': self.alpha,
             'beta': self.beta,
             'gamma': self.gamma,
             'delta': self.delta,
@@ -201,7 +236,7 @@ def run(args=None):
                         help="use the Italy dataset")
     args = parser.parse_args(args)
 
-    test = seirTest(device=args.device)
+    test = SeirTest(device=args.device)
 
     if args.italy:
         test.add_italy()
