@@ -73,7 +73,7 @@ class DataPopulation():
     def by_country(self, country):
         """Returns the total population of the given country."""
         assert country in self.country_map
-        return sum(p for p in self.country_map[country].values)
+        return sum(self.country_map[country].values())
 
     def by_regions(self, country, regions):
         """Returns the numpy array of populations for all regions."""

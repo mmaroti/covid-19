@@ -16,6 +16,7 @@
 
 import enum
 import torch
+import numpy as np
 
 from . import data_population
 from . import data_italy
@@ -135,7 +136,7 @@ class SeirTest():
             assert list(loss.shape) == []
             print("* " + name + ":", loss.item())
 
-    def optimize(self, steps, learning_rate=200):
+    def optimize(self, steps, learning_rate=5):
         print("optimizing", steps, "steps with", learning_rate, "learning rate")
         optim = torch.optim.Adam(self.parameters.values(), lr=learning_rate)
         for step in range(steps):
@@ -153,12 +154,22 @@ class SeirTest():
 
         print("*", steps, "loss:", loss.cpu().item())
 
-    def add_case_table(self, name, num_regions, num_days, avgpop=100000):
+    def add_case_table(self, name, population, num_days):
         """Creates a tensor with optimizable variables describing one case study.
-        The returned shape is [num_regions, num_days, len(State), len(Confirmed)]"""
-        avgpop = 2 + int(avgpop / (len(State) * len(Test)))
-        table = torch.randint(0, avgpop, [num_regions, num_days, len(State), len(Test)],
-                              dtype=torch.float, requires_grad=True, device=self.device)
+        The population must be an array of length num_regions. The returned shape
+        is [num_regions, num_days, len(State), len(Confirmed)]"""
+        table = torch.randn(
+            [len(population), num_days, len(State), len(Test)],
+            dtype=torch.float,
+            requires_grad=True,
+            device=self.device)
+        population = torch.tensor(
+            population,
+            dtype=torch.float,
+            requires_grad=False,
+            device=self.device)
+        population = torch.reshape(population, [-1, 1])
+        table.data[:, :, State.S, Test.U] = population
         assert name not in self.parameters
         self.parameters[name] = table
         return table
@@ -193,8 +204,7 @@ class SeirTest():
 
     def closed_cases(self, table):
         """Returns a tensor of shape [num_regions, num_days]."""
-        assert self.is_case_table(table)
-        return table[:, :, State.R, Test.C] + table[:, :, State.D, Test.C]
+        return self.closed_recovered(table) + self.closed_deaths(table)
 
     def new_positive_tests(self, table):
         """Returns a tensor of shape [num_regions, num_days]."""
@@ -212,24 +222,26 @@ class SeirTest():
         assert self.is_case_table(table)
         return torch.sum(table[:, :, :, Test.T], axis=2, keepdim=False)
 
-    def enforce_constant_population(self, name, table, population):
-        """Enforces that the population stays constant and equal to the give
-        population data. The shape of the population must be num_regions."""
-        assert table.is_leaf
-        population = torch.tensor(
-            population,
+    def total_tests(self, table):
+        """Returns a tensor of shape [num_regions, num_days]."""
+        return torch.cumsum(self.new_tests(table), dim=1)
+
+    def enforce_measure(self, name, table, measure, value):
+        """Enforces that the given derived measure of the table
+        matches the given value."""
+        assert table.is_leaf and self.is_case_table(table)
+        value = torch.tensor(
+            value,
             dtype=torch.float32,
             requires_grad=False,
             device=self.device)
-        assert len(population.shape) == 1
-        assert table.shape[0] == population.shape[0]
+        assert len(value.shape) == 2
+        assert value.shape[0] in [1, table.shape[0]]
+        assert value.shape[1] in [1, table.shape[1]]
 
         def loss_func():
-            target = torch.reshape(population, [-1, 1])
-            simulated = torch.sum(table, [2, 3], keepdim=False)
-            return self._rms_loss(simulated - target)
+            return self._rms_loss(measure(table) - value)
 
-        name = name + ' constant population'
         assert name not in self.loss_functions
         self.loss_functions[name] = loss_func
 
@@ -252,10 +264,30 @@ class SeirTest():
         italy = data_italy.DataItaly()
         italy.load()
 
-        table = self.add_case_table('Italy', len(italy.regions), len(italy.dates))
-        self.enforce_constant_population(
-            'Italy', table, population.by_regions('Italy', italy.regions))
-        self.enforce_susceptible_not_confirmed('Italy', table)
+        table = self.add_case_table(
+            'Italy', population.by_regions('Italy', italy.regions), len(italy.dates))
+
+        self.enforce_measure(
+            'Italy population', table, self.population,
+            np.reshape(population.by_regions('Italy', italy.regions), [-1, 1]))
+
+        self.enforce_measure(
+            'Italy active cases', table, self.active_cases,
+            italy.active_cases)
+
+        self.enforce_measure(
+            'Italy closed recovered', table, self.closed_recovered,
+            italy.closed_recovered)
+
+        self.enforce_measure(
+            'Italy closed deaths', table, self.closed_deaths,
+            italy.closed_deaths)
+
+        self.enforce_measure(
+            'Italy total tests', table, self.total_tests,
+            italy.total_tests)
+
+        # self.enforce_susceptible_not_confirmed('Italy', table)
 
 
 def run(args=None):
@@ -274,7 +306,7 @@ def run(args=None):
     if args.italy:
         test.add_italy()
         test.print_parameters()
-        test.optimize(10000)
+        test.optimize(20000)
         test.print_losses()
 
 
