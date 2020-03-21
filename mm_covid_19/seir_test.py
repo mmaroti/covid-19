@@ -17,10 +17,11 @@
 import enum
 import torch
 
+from . import data_population
 from . import data_italy
 
 
-class State(enum.Enum):
+class State(enum.IntEnum):
     """
     Each patient is in (S)usceptible, (E)xposed, (I)nfectious, (R)ecovered
     and (D)eceised according to the development of the virus where
@@ -37,7 +38,7 @@ class State(enum.Enum):
     D = 4
 
 
-class Confirmed(enum.Enum):
+class Confirmed(enum.IntEnum):
     """
     Each patient is either (N)ot confirmed, or (C)onfirmed where
     * Not confirmed: either not tested at all or all of the tests are negative
@@ -50,8 +51,8 @@ class Confirmed(enum.Enum):
 class seirTest():
     """
     All (S) are (N). An (S,N)->(E,N) infection happens, when an (S,N) patient
-    meets an (I,N) patient. All (I,P) patients are assumed to be in quarantine,
-    so they are not infecting.
+    meets an (I,N) patient daily with beta probability. All (I,P) patients are
+    assumed to be in quarantine, so they are not infecting.
 
     (E)->(I) transition happens with alpha probability with exponential
     distribution, so the (E) incubation period is 1 / gamma. The (I)->(R)
@@ -69,13 +70,26 @@ class seirTest():
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = torch.device(device)
 
-        # generic model
-        self.beta = torch.tensor([1.0], dtype=torch.float,
-                                 requires_grad=True, device=self.device)
-        self.gamma = torch.tensor([1.0], dtype=torch.float,
-                                  requires_grad=True, device=self.device)
-        self.delta = torch.tensor([1.0], dtype=torch.float,
-                                  requires_grad=True, device=self.device)
+        self.beta_min = 0.1
+        self.beta_max = 0.5
+        self.beta = torch.tensor(0.5 * (self.beta_min + self.beta_max),
+                                 dtype=torch.float,
+                                 requires_grad=True,
+                                 device=self.device)
+
+        self.gamma_min = 0.1
+        self.gamma_max = 0.5
+        self.gamma = torch.tensor(0.5 * (self.gamma_min + self.gamma_max),
+                                  dtype=torch.float,
+                                  requires_grad=True,
+                                  device=self.device)
+
+        self.delta_min = 0.1
+        self.delta_max = 0.5
+        self.delta = torch.tensor(0.5 * (self.delta_min + self.delta_max),
+                                  dtype=torch.float,
+                                  requires_grad=True,
+                                  device=self.device)
 
         # optimization parameters, case tables will be added
         self.parameters = {
@@ -84,23 +98,96 @@ class seirTest():
             'delta': self.delta,
         }
 
-    def info(self):
-        print("parameters", self.parameters.keys())
+        self.loss_functions = {}
 
-    def add_case_table(self, name, days):
-        table = torch.zeros([len(State), len(Confirmed), days], dtype=torch.float,
-                            requires_grad=True, device=self.device)
+    def print_parameters(self):
+        print("parameter sizes:")
+        for name, param in self.parameters.items():
+            print("* " + name + ":", list(param.shape))
+
+    def print_losses(self):
+        print("losses:")
+        for name, func in self.loss_functions.items():
+            loss = func().cpu()
+            assert list(loss.shape) == []
+            print("* " + name + ":", loss.item())
+
+    def optimize(self, steps, learning_rate=200):
+        print("optimizing", steps, "steps with", learning_rate, "learning rate")
+        optim = torch.optim.Adam(self.parameters.values(), lr=learning_rate)
+        for step in range(steps):
+            optim.zero_grad()
+
+            loss = torch.zeros([], dtype=torch.float, device=self.device)
+            for func in self.loss_functions.values():
+                loss = loss + func()
+
+            if step % 1000 == 0:
+                print("*", step, "loss:", loss.cpu().item())
+
+            loss.backward()
+            optim.step()
+
+        print("*", steps, "loss:", loss.cpu().item())
+
+    def add_case_table(self, name, num_regions, num_days, avgpop=100000):
+        """Creates a tensor with optimizable variables describing one case study.
+        The returned shape is [num_regions, num_days, len(State), len(Confirmed)]"""
+        avgpop = 2 + int(avgpop / (len(State) * len(Confirmed)))
+        table = torch.randint(0, avgpop, [num_regions, num_days, len(State), len(Confirmed)],
+                              dtype=torch.float, requires_grad=True, device=self.device)
         assert name not in self.parameters
         self.parameters[name] = table
         return table
 
+    @staticmethod
+    def rms_loss(tensor):
+        return torch.sqrt(torch.mean(tensor ** 2.0))
+
+    def enforce_constant_population(self, name, table, population):
+        """Enforces that the population stays constant and equal to the give
+        population data. The shape of the population must be num_regions."""
+        assert table.is_leaf
+        population = torch.tensor(
+            population,
+            dtype=torch.float32,
+            requires_grad=False,
+            device=self.device)
+        assert len(population.shape) == 1
+        assert table.shape[0] == population.shape[0]
+
+        def loss_func():
+            target = torch.reshape(population, [-1, 1])
+            simulated = torch.sum(table, [2, 3], keepdim=False)
+            return self.rms_loss(simulated - target)
+
+        name = name + ' constant population'
+        assert name not in self.loss_functions
+        self.loss_functions[name] = loss_func
+
+    def enforce_susceptible_not_confirmed(self, name, table):
+        """Enforces that susceptible patiens are never confirmed."""
+        assert table.is_leaf
+
+        def loss_func():
+            simulated = table[:, :, State.S, Confirmed.C]
+            return self.rms_loss(simulated)
+
+        name = name + ' suspectible not confirmed'
+        assert name not in self.loss_functions
+        self.loss_functions[name] = loss_func
+
     def add_italy(self):
+        population = data_population.DataPopulation()
+        population.load()
+
         italy = data_italy.DataItaly()
         italy.load()
 
-        for idx in range(len(italy.regions)):
-            table = self.add_case_table("Italy-" + italy.regions[idx],
-                                        len(italy.dates))
+        table = self.add_case_table('Italy', len(italy.regions), len(italy.dates))
+        self.enforce_constant_population(
+            'Italy', table, population.by_regions('Italy', italy.regions))
+        self.enforce_susceptible_not_confirmed('Italy', table)
 
 
 def run(args=None):
@@ -115,9 +202,12 @@ def run(args=None):
     args = parser.parse_args(args)
 
     test = seirTest(device=args.device)
+
     if args.italy:
         test.add_italy()
-    test.info()
+        test.print_parameters()
+        test.optimize(10000)
+        test.print_losses()
 
 
 if __name__ == '__main__':

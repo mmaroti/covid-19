@@ -70,21 +70,22 @@ class DataPopulation():
         assert country in self.country_map
         return list(self.country_map[country].keys())
 
-    def population(self, country, region=None):
-        """Returns the population of the given country. If the region is
-        None, then the all population is returned. If the region is a
-        string, then the given population is returned. If the region is
-        a list of strings, then a numpy array of populations is returned."""
+    def by_country(self, country):
+        """Returns the total population of the given country."""
         assert country in self.country_map
-        if region is None:
-            return sum(p for p in self.country_map[country].values())
-        elif isinstance(region, str):
-            assert region in self.country_map[country]
-            return self.country_map[country][region]
-        else:
-            assert isinstance(region, list)
-            return np.array([self.country_map[country][r] for r in region],
-                            dtype=int)
+        return sum(p for p in self.country_map[country].values)
+
+    def by_regions(self, country, regions):
+        """Returns the numpy array of populations for all regions."""
+        assert country in self.country_map
+        return np.array([self.country_map[country][r] for r in regions],
+                        dtype=int)
+
+    def by_region(self, country, region):
+        """Returns the population for the given country and region."""
+        assert country in self.country_map
+        assert region in self.country_map[country]
+        return self.country_map[country][region]
 
 
 def run(args=None):
