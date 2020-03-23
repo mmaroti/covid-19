@@ -136,7 +136,7 @@ class SeirTest():
             assert list(loss.shape) == []
             print("* " + name + ":", loss.item())
 
-    def optimize(self, steps, learning_rate=5):
+    def optimize(self, steps, learning_rate=1):
         print("optimizing", steps, "steps with", learning_rate, "learning rate")
         optim = torch.optim.Adam(self.parameters.values(), lr=learning_rate)
         for step in range(steps):
@@ -306,7 +306,7 @@ def run(args=None):
     if args.italy:
         test.add_italy()
         test.print_parameters()
-        test.optimize(20000)
+        test.optimize(50000)
         test.print_losses()
 
 
