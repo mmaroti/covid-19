@@ -39,8 +39,8 @@ class Model():
         # Average basic reproduction number is around 2. We should divide this
         # by the average infection period of 3 to get the rate of infection
         # between cases in (I) and (S). Thus beta should be around 2/3 = 0.66.
-        self.beta_min = 0.5
-        self.beta_max = 0.9
+        self.beta_min = 0.7
+        self.beta_max = 0.7
         self.beta = torch.tensor(0.5 * (self.beta_min + self.beta_max),
                                  dtype=torch.float,
                                  requires_grad=True,
@@ -50,8 +50,8 @@ class Model():
         # patients spend in state (E). We assume an exponential distribution,
         # and every day we move a beta fraction of cases in (E) to (I).
         # Thus sigma should be around 1/6 = 0.17.
-        self.sigma_min = 0.10
-        self.sigma_max = 0.25
+        self.sigma_min = 0.2
+        self.sigma_max = 0.2
         self.sigma = torch.tensor(0.5 * (self.sigma_min + self.sigma_max),
                                   dtype=torch.float,
                                   requires_grad=True,
@@ -61,8 +61,8 @@ class Model():
         # patients spend in state (I). We assume an exponential distribution,
         # and every day we move a gamma fraction of cases in (I) to (R).
         # Thus gamma should be around 1/3 = 0.33
-        self.gamma_min = 0.25
-        self.gamma_max = 0.40
+        self.gamma_min = 0.2
+        self.gamma_max = 0.2
         self.gamma = torch.tensor(0.5 * (self.gamma_min + self.gamma_max),
                                   dtype=torch.float,
                                   requires_grad=True,
@@ -70,9 +70,9 @@ class Model():
 
         # The average mortality rate is around 2%. Thus mu fraction of the
         # removed cases are deceased.
-        self.mu_min = 0.01
-        self.mu_max = 0.03
-        self.mu = torch.tensor(0.5 * (self.gamma_min + self.gamma_max),
+        self.mu_min = 0.02
+        self.mu_max = 0.02
+        self.mu = torch.tensor(0.5 * (self.mu_min + self.mu_max),
                                dtype=torch.float,
                                requires_grad=True,
                                device=self.device)
@@ -82,13 +82,18 @@ class Model():
 
         self.italy = data_italy.DataItaly()
         self.italy.load()
-        self.italy_population = self.population.by_regions(
-            'Italy', self.italy.regions)
+
+        self.italy_population = torch.tensor(
+            self.population.by_regions('Italy', self.italy.regions),
+            dtype=torch.float,
+            requires_grad=False,
+            device=self.device)
 
         self.italy_cases = self.create_cases(
             'Italy',
-            self.population.by_regions('Italy', self.italy.regions),
-            len(self.italy.dates))
+            self.italy_population,
+            100)
+        # len(self.italy.dates))
 
         # optimization parameters
         self.parameters = {
@@ -102,12 +107,25 @@ class Model():
         # various losses will be put here
         self.losses = {}
 
-    def print_parameters(self):
+    def print_parameter_sizes(self):
         print("parameter sizes:")
         for name, param in self.parameters.items():
-            if param is None:
-                continue
             print("* " + name + ":", list(param.shape))
+
+    def print_parameters(self):
+        print("parameters:")
+        for name, param in self.parameters.items():
+            if list(param.shape) == []:
+                print("* " + name + ":", param.cpu().item())
+
+    def clamp_parameters(self):
+        self.beta.data = self.beta.clamp(self.beta_min, self.beta_max)
+        self.sigma.data = self.sigma.clamp(self.sigma_min, self.sigma_max)
+        self.gamma.data = self.gamma.clamp(self.gamma_min, self.gamma_max)
+        self.mu.data = self.mu.clamp(self.mu_min, self.mu_max)
+
+        # TODO: check why 0.0 gives nans
+        self.italy_cases.data = self.italy_cases.clamp(min=0.1)
 
     def create_cases(self, name, population, num_days):
         """Creates a tensor with entries describing the number of cases in each
@@ -118,17 +136,9 @@ class Model():
             dtype=torch.float,
             requires_grad=True,
             device=self.device)
-        population = torch.tensor(
-            population,
-            dtype=torch.float,
-            requires_grad=False,
-            device=self.device)
         population = torch.reshape(population, [-1, 1])
         cases.data[:, :, State.S] = population
         return cases
-
-    def is_cases(self, cases):
-        return len(cases.shape) == 3 and cases.shape[2] == len(State)
 
     @staticmethod
     def rms_loss(tensor):
@@ -173,50 +183,50 @@ class Model():
     def delta_susceptible(self, cases):
         """Returns the daily change in the number of susceptible cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return cases[:, 1:, State.S] - cases[:, :-1, State.S]
+        return cases[:, 1:, State.S] - cases.data[:, :-1, State.S]
 
     def delta_exposed(self, cases):
         """Returns the daily change in the number of exposed cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return cases[:, 1:, State.E] - cases[:, :-1, State.E]
+        return cases[:, 1:, State.E] - cases.data[:, :-1, State.E]
 
     def delta_infectious(self, cases):
         """Returns the daily change in the number of infectious cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return cases[:, 1:, State.I] - cases[:, :-1, State.I]
+        return cases[:, 1:, State.I] - cases.data[:, :-1, State.I]
 
     def delta_removed(self, cases):
         """Returns the daily change in the number of removed cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return cases[:, 1:, State.R] - cases[:, :-1, State.R]
+        return cases[:, 1:, State.R] - cases.data[:, :-1, State.R]
 
-    def susceptible_to_exposed(self, cases):
+    def susceptible_to_exposed(self, cases, population):
         """Returns the daily number of newly infected cases, those that move
         from (S) to (E), as a tensor of shape [num_regions, num_days - 1]."""
-        return cases[:, :-1, State.S] * cases[:, :-1, State.I] / \
-            self.population_alive(cases)[:, :-1] * self.beta
+        return cases.data[:, :-1, State.S] * cases.data[:, :-1, State.I] / \
+            population.reshape([-1, 1]) * self.beta
 
     def exposed_to_infectious(self, cases):
         """Returns the daily number of cases that move from (S) to (I), as a
         tensor of shape [num_regions, num_days - 1]."""
-        return cases[:, :-1, State.E] * self.sigma
+        return cases.data[:, :-1, State.E] * self.sigma
 
     def infectious_to_removed(self, cases):
         """Returns the daily number of cases that move from (I) to (R), as a
         tensor of shape [num_regions, num_days - 1]."""
-        return cases[:, :-1, State.I] * self.gamma
+        return cases.data[:, :-1, State.I] * self.gamma
 
     def add_loss(self, name, loss):
         assert name not in self.losses
         self.losses[name] = loss
 
-    def add_evolution_losses(self, country, cases):
+    def add_evolution_losses(self, country, cases, population):
         """Calculates the model evolution losses."""
 
-        s2c = self.susceptible_to_exposed(cases)
+        s2c = self.susceptible_to_exposed(cases, population)
         self.add_loss(
             country + ' susceptible',
-            self.rms_loss(-s2c - self.delta_removed(cases)))
+            self.rms_loss(-s2c - self.delta_susceptible(cases)))
 
         e2i = self.exposed_to_infectious(cases)
         self.add_loss(
@@ -232,21 +242,51 @@ class Model():
             country + ' removed',
             self.rms_loss(i2r - self.delta_removed(cases)))
 
-    def plot_cases(self, cases):
+    def add_initial_italy(self):
+        self.add_loss("initial exposed",
+                      self.rms_loss(self.exposed_cases(self.italy_cases)[:, 0] - 10.0))
+
+        self.add_loss("initial infectious",
+                      self.rms_loss(self.infectious_cases(self.italy_cases)[:, 0] - 0.0))
+
+        self.add_loss("initial removed",
+                      self.rms_loss(self.removed_cases(self.italy_cases)[:, 0] - 0.0))
+
+    def plot_cases(self, cases, population):
         _fig, ax1 = plt.subplots(1, 1)
 
-        if False:
-            ax1.plot(
-                np.sum(self.susceptible_cases(cases).data.numpy(), axis=0),
-                label="susceptible")
+        ax1.plot(
+            np.sum(self.susceptible_cases(cases).data.numpy(), axis=0),
+            label="susceptible")
+
+        ax1.plot(
+            np.sum(self.susceptible_to_exposed(
+                cases, population).data.numpy(), axis=0),
+            label="susceptible to exposed")
 
         ax1.plot(
             np.sum(self.exposed_cases(cases).data.numpy(), axis=0),
             label="exposed")
 
         ax1.plot(
+            np.sum(self.exposed_to_infectious(cases).data.numpy(), axis=0),
+            label="exposed to infectious")
+
+        ax1.plot(
+            np.sum(self.delta_exposed(cases).data.numpy(), axis=0),
+            label="delta exposed")
+
+        ax1.plot(
+            np.sum(self.delta_infectious(cases).data.numpy(), axis=0),
+            label="delta infectious")
+
+        ax1.plot(
             np.sum(self.infectious_cases(cases).data.numpy(), axis=0),
             label="infectious")
+
+        ax1.plot(
+            np.sum(self.infectious_to_removed(cases).data.numpy(), axis=0),
+            label="infectious to removed")
 
         ax1.plot(
             np.sum(self.removed_cases(cases).data.numpy(), axis=0),
@@ -267,7 +307,7 @@ class Model():
             assert list(loss.shape) == []
             print("* " + name + ":", loss.item())
 
-    def optimize(self, steps, learning_rate=1):
+    def optimize(self, steps, learning_rate=1.0):
         print("optimizing", steps, "steps with",
               learning_rate, "learning rate")
         optim = torch.optim.Adam(self.parameters.values(), lr=learning_rate)
@@ -275,22 +315,25 @@ class Model():
             optim.zero_grad()
 
             self.losses.clear()
-            self.add_evolution_losses('italy', self.italy_cases)
-            self.add_loss("initial exposed",
-                          self.rms_loss(self.exposed_cases(self.italy_cases)[:, 0] - 10.0))
+            self.add_evolution_losses(
+                'italy', self.italy_cases, self.italy_population)
+            self.add_initial_italy()
 
             total_loss = torch.zeros([], dtype=torch.float, device=self.device)
             for loss in self.losses.values():
                 total_loss += loss
 
+            total_loss.backward()
+            optim.step()
+
+            self.clamp_parameters()
+
             if step % 1000 == 0:
                 self.print_losses(step)
+                self.print_parameters()
 
-            if step % 10000 == 0:
-                self.plot_cases(self.italy_cases)
-
-            loss.backward()
-            optim.step()
+            if step % 5000 == 0 or step == steps - 1:
+                self.plot_cases(self.italy_cases, self.italy_population)
 
         print("*", steps, "loss:", loss.cpu().item())
 
@@ -305,8 +348,8 @@ def run(args=None):
     args = parser.parse_args(args)
 
     model = Model(device=args.device)
-    model.print_parameters()
-    model.optimize(50000)
+    model.print_parameter_sizes()
+    model.optimize(50000, learning_rate=200)
     model.print_losses()
 
 
