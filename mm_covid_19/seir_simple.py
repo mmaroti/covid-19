@@ -16,6 +16,7 @@
 
 import enum
 import torch
+import matplotlib.pyplot as plt
 import numpy as np
 
 from . import data_population
@@ -81,8 +82,10 @@ class Model():
 
         self.italy = data_italy.DataItaly()
         self.italy.load()
+        self.italy_population = self.population.by_regions(
+            'Italy', self.italy.regions)
 
-        self.italy_table = self.create_case_table(
+        self.italy_cases = self.create_cases(
             'Italy',
             self.population.by_regions('Italy', self.italy.regions),
             len(self.italy.dates))
@@ -93,7 +96,7 @@ class Model():
             'sigma': self.sigma,
             'gamma': self.gamma,
             'mu': self.mu,
-            'italy': self.italy_table,
+            'italy': self.italy_cases,
         }
 
         # various losses will be put here
@@ -106,21 +109,11 @@ class Model():
                 continue
             print("* " + name + ":", list(param.shape))
 
-    def add_loss(self, name, loss):
-        assert name not in self.losses
-        self.losses[name] = loss
-
-    def print_losses(self):
-        print("losses:")
-        for name, loss in self.losses.items():
-            assert list(loss.shape) == []
-            print("* " + name + ":", loss.item())
-
-    def create_case_table(self, name, population, num_days):
+    def create_cases(self, name, population, num_days):
         """Creates a tensor with entries describing the number of cases in each
         category. The returned shape is [num_regions, num_days, len(State)].
         Initially, all of the population are in (S)."""
-        table = torch.randn(
+        cases = torch.randn(
             [len(population), num_days, len(State)],
             dtype=torch.float,
             requires_grad=True,
@@ -131,104 +124,148 @@ class Model():
             requires_grad=False,
             device=self.device)
         population = torch.reshape(population, [-1, 1])
-        table.data[:, :, State.S] = population
-        return table
+        cases.data[:, :, State.S] = population
+        return cases
 
-    def is_case_table(self, table):
-        return len(table.shape) == 3 and table.shape[2] == len(State)
+    def is_cases(self, cases):
+        return len(cases.shape) == 3 and cases.shape[2] == len(State)
 
     @staticmethod
     def rms_loss(tensor):
         return torch.sqrt(torch.mean(tensor ** 2.0))
 
-    def susceptible_cases(self, table):
+    def susceptible_cases(self, cases):
         """Returns the total number of susceptible cases as a tensor of shape
         [num_regions, num_days]."""
-        return table[:, :, State.I]
+        return cases[:, :, State.S]
 
-    def exposed_cases(self, table):
+    def exposed_cases(self, cases):
         """Returns the actively exposed cases as a tensor of shape
         [num_regions, num_days]."""
-        return table[:, :, State.I]
+        return cases[:, :, State.E]
 
-    def infectious_cases(self, table):
+    def infectious_cases(self, cases):
         """Returns the actively infectious cases as a tensor of shape
         [num_regions, num_days]."""
-        return table[:, :, State.I]
+        return cases[:, :, State.I]
 
-    def resistant_cases(self, table):
+    def removed_cases(self, cases):
+        """Returns the total number of removed cases as a tensor of shape
+        [num_regions, num_day]."""
+        return cases[:, :, State.R]
+
+    def resistant_cases(self, cases):
         """Returns the total number of resistant cases as a tensor of shape
         [num_regions, num_day]."""
-        return table[:, :, State.R] * (1.0 - self.mu)
+        return cases[:, :, State.R] * (1.0 - self.mu)
 
-    def deceased_cases(self, table):
+    def deceased_cases(self, cases):
         """Returns the total number of deceased cases as a tensor of shape
         [num_regions, num_days]."""
-        return table[:, :, State.R] * self.mu
+        return cases[:, :, State.R] * self.mu
 
-    def population_alive(self, table):
+    def population_alive(self, cases):
         """Returns the population alive (not counting the deceased) as a tensor
         of shape [num_regions, num_days]."""
-        return torch.sum(table[:, :, State.S:State.R], 2, keepdim=False) \
-            + table[:, :, State.R] * (1.0 - self.mu)
+        return torch.sum(cases[:, :, State.S:State.R], 2, keepdim=False) \
+            + cases[:, :, State.R] * (1.0 - self.mu)
 
-    def delta_susceptible(self, table):
+    def delta_susceptible(self, cases):
         """Returns the daily change in the number of susceptible cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return table[:, 1:, State.S] - table[:, :-1, State.S]
+        return cases[:, 1:, State.S] - cases[:, :-1, State.S]
 
-    def delta_exposed(self, table):
+    def delta_exposed(self, cases):
         """Returns the daily change in the number of exposed cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return table[:, 1:, State.E] - table[:, :-1, State.E]
+        return cases[:, 1:, State.E] - cases[:, :-1, State.E]
 
-    def delta_infectious(self, table):
+    def delta_infectious(self, cases):
         """Returns the daily change in the number of infectious cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return table[:, 1:, State.I] - table[:, :-1, State.I]
+        return cases[:, 1:, State.I] - cases[:, :-1, State.I]
 
-    def delta_removed(self, table):
+    def delta_removed(self, cases):
         """Returns the daily change in the number of removed cases as a
         tensor of shape [num_regions, num_days - 1]."""
-        return table[:, 1:, State.R] - table[:, :-1, State.R]
+        return cases[:, 1:, State.R] - cases[:, :-1, State.R]
 
-    def susceptible_to_exposed(self, table):
+    def susceptible_to_exposed(self, cases):
         """Returns the daily number of newly infected cases, those that move
         from (S) to (E), as a tensor of shape [num_regions, num_days - 1]."""
-        return table[:, :-1, State.S] * table[:, :-1, State.I] / \
-            self.population_alive(table)[:, :-1] * self.beta
+        return cases[:, :-1, State.S] * cases[:, :-1, State.I] / \
+            self.population_alive(cases)[:, :-1] * self.beta
 
-    def exposed_to_infectious(self, table):
+    def exposed_to_infectious(self, cases):
         """Returns the daily number of cases that move from (S) to (I), as a
         tensor of shape [num_regions, num_days - 1]."""
-        return table[:, :-1, State.E] * self.sigma
+        return cases[:, :-1, State.E] * self.sigma
 
-    def infectious_to_removed(self, table):
+    def infectious_to_removed(self, cases):
         """Returns the daily number of cases that move from (I) to (R), as a
         tensor of shape [num_regions, num_days - 1]."""
-        return table[:, :-1, State.I] * self.gamma
+        return cases[:, :-1, State.I] * self.gamma
 
-    def add_evolution_losses(self, country, table):
+    def add_loss(self, name, loss):
+        assert name not in self.losses
+        self.losses[name] = loss
+
+    def add_evolution_losses(self, country, cases):
         """Calculates the model evolution losses."""
 
-        s2c = self.susceptible_to_exposed(table)
+        s2c = self.susceptible_to_exposed(cases)
         self.add_loss(
             country + ' susceptible',
-            self.rms_loss(-s2c - self.delta_removed(table)))
+            self.rms_loss(-s2c - self.delta_removed(cases)))
 
-        e2i = self.exposed_to_infectious(table)
+        e2i = self.exposed_to_infectious(cases)
         self.add_loss(
             country + ' exposed',
-            self.rms_loss(s2c - e2i - self.delta_exposed(table)))
+            self.rms_loss(s2c - e2i - self.delta_exposed(cases)))
 
-        i2r = self.infectious_to_removed(table)
+        i2r = self.infectious_to_removed(cases)
         self.add_loss(
             country + ' infectious',
-            self.rms_loss(e2i - i2r - self.delta_infectious(table)))
+            self.rms_loss(e2i - i2r - self.delta_infectious(cases)))
 
         self.add_loss(
             country + ' removed',
-            self.rms_loss(i2r - self.delta_removed(table)))
+            self.rms_loss(i2r - self.delta_removed(cases)))
+
+    def plot_cases(self, cases):
+        _fig, ax1 = plt.subplots(1, 1)
+
+        if False:
+            ax1.plot(
+                np.sum(self.susceptible_cases(cases).data.numpy(), axis=0),
+                label="susceptible")
+
+        ax1.plot(
+            np.sum(self.exposed_cases(cases).data.numpy(), axis=0),
+            label="exposed")
+
+        ax1.plot(
+            np.sum(self.infectious_cases(cases).data.numpy(), axis=0),
+            label="infectious")
+
+        ax1.plot(
+            np.sum(self.removed_cases(cases).data.numpy(), axis=0),
+            label="removed")
+
+        ax1.legend()
+        ax1.set_xlabel("days")
+        ax1.set_ylabel("cases")
+
+        plt.show()
+
+    def print_losses(self, step=None):
+        if step is None:
+            print("losses:")
+        else:
+            print("step", step, "losses:")
+        for name, loss in self.losses.items():
+            assert list(loss.shape) == []
+            print("* " + name + ":", loss.item())
 
     def optimize(self, steps, learning_rate=1):
         print("optimizing", steps, "steps with",
@@ -238,17 +275,19 @@ class Model():
             optim.zero_grad()
 
             self.losses.clear()
-            self.add_evolution_losses('italy', self.italy_table)
+            self.add_evolution_losses('italy', self.italy_cases)
+            self.add_loss("initial exposed",
+                          self.rms_loss(self.exposed_cases(self.italy_cases)[:, 0] - 10.0))
 
             total_loss = torch.zeros([], dtype=torch.float, device=self.device)
             for loss in self.losses.values():
                 total_loss += loss
 
             if step % 1000 == 0:
-                self.print_losses()
-                print("STEP", step, "loss:", loss.cpu().item())
-                print("total infectious",
-                      torch.sum(self.infectious_cases(self.italy_table)).cpu().item())
+                self.print_losses(step)
+
+            if step % 10000 == 0:
+                self.plot_cases(self.italy_cases)
 
             loss.backward()
             optim.step()
