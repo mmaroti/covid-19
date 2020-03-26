@@ -84,7 +84,7 @@ class DataItaly(lemurs.Frame):
 
                 # we keep only the date, ignore time
                 date = datetime.strptime(
-                    row[0], "%Y-%m-%d %H:%M:%S").date()
+                    row[0], "%Y-%m-%dT%H:%M:%S").date()
                 self['date'].add(date)
 
                 region = row[3]
@@ -96,7 +96,7 @@ class DataItaly(lemurs.Frame):
                 self['active_critical'][region, date] = row[7]
                 self['closed_recovered'][region, date] = row[12]
                 self['closed_deaths'][region, date] = row[13]
-                self['total_tests'][region, date] = row[14]
+                self['total_tests'][region, date] = row[15]
 
         self.trim_data()
 
@@ -183,10 +183,33 @@ class DataItaly(lemurs.Frame):
         return self['total_tests'].data
 
     @property
+    def total_positive_tests(self):
+        """Returns the cumulative total positive tests (active cases and
+        closed cases) at the given region and time."""
+        return self.active_cases + self.closed_cases
+
+    def total_negative_tests(self):
+        """Returns the cumulative negative positive tests (active cases and
+        closed cases) at the given region and time."""
+        return self.total_cases - self.total_positive_cases
+
+    @property
     def new_tests(self):
         """Returns the number of tests performed at the given region
         on the given day."""
         return np.diff(self.total_tests, axis=1, prepend=0)
+
+    @property
+    def new_positive_tests(self):
+        """Returns the number of positive tests performed at the given region
+        on the given day."""
+        return np.diff(self.total_positive_tests, axis=1, prepend=0)
+
+    @property
+    def new_negative_tests(self):
+        """Returns the number of negative tests performed at the given region
+        on the given day."""
+        return np.diff(self.total_positive_tests, axis=1, prepend=0)
 
     def plot_active(self):
         _fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex=True, sharey=True)
@@ -258,6 +281,42 @@ class DataItaly(lemurs.Frame):
 
         plt.show()
 
+    def plot_tests(self):
+        _fig, (ax1, ax2, ax3) = plt.subplots(
+            1, 3, sharex=True)
+
+        regions = range(len(self.regions))
+        # regions = [9, 5, 20, 12, 10, 16, 7, 1, 11, 3, 14]
+        for idx in regions:
+            ax1.plot(
+                self.total_tests[idx, :],
+                label=self.regions[idx])
+            ax2.plot(
+                self.total_positive_tests[idx, :],
+                label=self.regions[idx])
+            ax3.plot(
+                100.0 * self.total_positive_tests[idx, :] /
+                np.maximum(self.total_tests[idx, :], 1),
+                label=self.regions[idx])
+            # print(idx, self.closed_deaths[idx, -1])
+
+        ax1.legend()
+        ax1.set_xlabel("days")
+        ax1.set_ylabel("tests")
+        ax1.set_title("total tests performed")
+
+        # ax2.legend()
+        ax2.set_xlabel("days")
+        ax2.set_ylabel("tests")
+        ax2.set_title("total positive tests (confirmed cases)")
+
+        # ax3.legend()
+        ax3.set_xlabel("days")
+        ax3.set_ylabel("%")
+        ax3.set_title("fraction of positive to total test")
+
+        plt.show()
+
 
 def run(args=None):
     import argparse
@@ -270,6 +329,7 @@ def run(args=None):
     parser.add_argument('--plot-active', action='store_true')
     parser.add_argument('--plot-closed', action='store_true')
     parser.add_argument('--plot-new', action='store_true')
+    parser.add_argument('--plot-tests', action='store_true')
     args = parser.parse_args(args)
 
     italy = DataItaly(args.data_path)
@@ -285,6 +345,8 @@ def run(args=None):
         italy.plot_closed()
     if args.plot_new:
         italy.plot_new()
+    if args.plot_tests:
+        italy.plot_tests()
 
 
 if __name__ == '__main__':
