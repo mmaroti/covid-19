@@ -165,16 +165,29 @@ class DataItaly(lemurs.Frame):
         return self.closed_recovered + self.closed_deaths
 
     @property
+    def total_cases(self):
+        """Returns the numpy array of total (active and closed) confirmed
+        cases at the given region and time."""
+        return self.active_cases + self.closed_cases
+
+    @property
     def new_closed_cases(self):
         """Returns the numpy array of closed confirmed cases at the given
         region on the given time."""
         return np.diff(self.closed_cases, axis=1, prepend=0)
 
+    # TODO: this is not consistent with new_closed_cases and new_total_cases
     @property
     def new_active_cases(self):
         """Returns the numpy array of new confirmed active cases at the
         given region on the given time."""
         return np.diff(self.active_cases, axis=1, prepend=0) + self.new_closed_cases
+
+    @property
+    def new_total_cases(self):
+        """Returns the numpy array of all new confirmed cases at the
+        given region on the given time."""
+        return np.diff(self.total_cases, axis=1, prepend=0)
 
     @property
     def total_tests(self):
@@ -191,7 +204,7 @@ class DataItaly(lemurs.Frame):
     def total_negative_tests(self):
         """Returns the cumulative negative positive tests (active cases and
         closed cases) at the given region and time."""
-        return self.total_cases - self.total_positive_cases
+        return self.total_cases - self.total_positive_tests
 
     @property
     def new_tests(self):
