@@ -20,6 +20,7 @@ import sys
 from . import data_italy
 from . import data_population
 from . import seir_simple
+from . import seir_simple2
 from . import seir_test
 
 
@@ -28,7 +29,7 @@ def run():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         'command', choices=['data-italy', 'data-population', 'seir-test',
-                            'seir-simple'],
+                            'seir-simple', 'seir-simple2'],
         help="subcommand to execute")
 
     args = parser.parse_args(sys.argv[1:2])
@@ -42,6 +43,8 @@ def run():
         data_population.run(sys.argv[2:])
     elif args.command == 'seir-simple':
         seir_simple.run(sys.argv[2:])
+    elif args.command == 'seir-simple2':
+        seir_simple2.run(sys.argv[2:])
     elif args.command == 'seir-test':
         seir_test.run(sys.argv[2:])
 
